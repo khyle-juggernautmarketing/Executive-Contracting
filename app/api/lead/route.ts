@@ -9,15 +9,6 @@ const WEBHOOK_TIMEOUT_MS = 20_000
 const WEBHOOK_MAX_ATTEMPTS = 3
 const MAX_BODY_BYTES = 8_192
 
-function splitFullName(fullName: string) {
-  const space = fullName.indexOf(' ')
-  if (space === -1) return { firstName: fullName, lastName: '' }
-  return {
-    firstName: fullName.slice(0, space),
-    lastName: fullName.slice(space + 1).trim(),
-  }
-}
-
 function getWebhookConfig() {
   const url = process.env.N8N_WEBHOOK_URL?.trim()
   const jwtSecret = process.env.N8N_JWT_SECRET?.trim()
@@ -131,19 +122,32 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: validated.error }, { status: 400 })
     }
 
-    const { fullName, email, phone, address, projectDomain, timeline, tcpaConsent } = validated.data
-    const { firstName, lastName } = splitFullName(fullName)
-
-    const payload = {
-      projectDomain,
+    const {
+      service,
+      propertyAge,
       timeline,
-      fullName,
       firstName,
       lastName,
       email,
       phone,
       address,
       tcpaConsent,
+    } = validated.data
+
+    const fullName = `${firstName} ${lastName}`.trim()
+
+    const payload = {
+      service,
+      propertyAge,
+      timeline,
+      firstName,
+      lastName,
+      fullName,
+      email,
+      phone,
+      address,
+      tcpaConsent,
+      consent: tcpaConsent,
       source: 'executive-construction-landing',
       submittedAt: new Date().toISOString(),
     }

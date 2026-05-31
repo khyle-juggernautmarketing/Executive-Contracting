@@ -81,7 +81,7 @@ export function Hero() {
             <div className="absolute inset-0 bg-executive-dark/20 mix-blend-multiply" aria-hidden />
           </div>
 
-          <div className="animate-hero-aside absolute bottom-8 left-4 z-20 w-full max-w-[420px] xl:bottom-12 xl:left-0 xl:max-w-md xl:-translate-x-6">
+          <div className="animate-hero-aside absolute bottom-6 left-4 z-20 w-[calc(100%-2rem)] max-w-[440px] xl:bottom-10 xl:left-0 xl:max-w-[460px] xl:-translate-x-4">
             <FormCard compactHeader />
           </div>
         </div>

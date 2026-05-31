@@ -8,7 +8,7 @@ const jakarta = Plus_Jakarta_Sans({
   display: 'swap',
 })
 
-const siteUrl = 'https://solidexteriors.toprooferusa.com'
+const siteUrl = 'https://executivecontracting.toprooferusa.com'
 const siteName = 'Executive Construction'
 const defaultDescription =
   'Premium commercial interior construction, tenant improvements, and build-outs across South Florida. Free precision budgets. FL License #CGC1511207. Serving Miami, Fort Lauderdale & Palm Beach since 2007.'

@@ -1,8 +1,9 @@
 import type { LeadFormData } from '@/types/lead'
-import { PROJECT_DOMAINS, TIMELINES } from '@/types/lead'
+import { PROPERTY_AGES, SERVICES, TIMELINES } from '@/types/lead'
 
 const MAX = {
-  fullName: 120,
+  firstName: 60,
+  lastName: 60,
   email: 254,
   phone: 32,
   address: 200,
@@ -24,7 +25,7 @@ export function isAllowedEnum<T extends string>(value: string, allowed: readonly
 }
 
 export function validateLeadBody(body: unknown):
-  | { ok: true; data: LeadFormData & { website?: string } }
+  | { ok: true; data: LeadFormData }
   | { ok: false; error: string } {
   if (!body || typeof body !== 'object') {
     return { ok: false, error: 'Invalid request body' }
@@ -32,26 +33,31 @@ export function validateLeadBody(body: unknown):
 
   const raw = body as Record<string, unknown>
 
-  // Honeypot — use obscure field names so browsers/password managers do not autofill them
   const honeypot = sanitizeText(raw._hp ?? raw.website, 200)
   if (honeypot) {
     return { ok: false, error: 'Invalid submission' }
   }
 
-  const projectDomain = sanitizeText(raw.projectDomain, 64)
+  const service = sanitizeText(raw.service, 64)
+  const propertyAge = sanitizeText(raw.propertyAge, 64)
   const timeline = sanitizeText(raw.timeline, 64)
-  const fullName = sanitizeText(raw.fullName, MAX.fullName)
+  const firstName = sanitizeText(raw.firstName, MAX.firstName)
+  const lastName = sanitizeText(raw.lastName, MAX.lastName)
   const email = sanitizeText(raw.email, MAX.email).toLowerCase()
   const phone = sanitizeText(raw.phone, MAX.phone)
   const address = sanitizeText(raw.address ?? raw.zip, MAX.address)
-  const tcpaConsent = raw.tcpaConsent === true
+  const tcpaConsent = raw.tcpaConsent === true || raw.consent === true
 
-  if (!projectDomain || !timeline || !fullName || !email || !phone || !address) {
+  if (!service || !propertyAge || !timeline || !firstName || !lastName || !email || !phone || !address) {
     return { ok: false, error: 'Missing required fields' }
   }
 
-  if (!isAllowedEnum(projectDomain, PROJECT_DOMAINS)) {
-    return { ok: false, error: 'Invalid project type selection' }
+  if (!isAllowedEnum(service, SERVICES)) {
+    return { ok: false, error: 'Invalid service selection' }
+  }
+
+  if (!isAllowedEnum(propertyAge, PROPERTY_AGES)) {
+    return { ok: false, error: 'Invalid property age selection' }
   }
 
   if (!isAllowedEnum(timeline, TIMELINES)) {
@@ -77,7 +83,7 @@ export function validateLeadBody(body: unknown):
 
   return {
     ok: true,
-    data: { projectDomain, timeline, fullName, email, phone, address, tcpaConsent },
+    data: { service, propertyAge, timeline, firstName, lastName, email, phone, address, tcpaConsent },
   }
 }
 
