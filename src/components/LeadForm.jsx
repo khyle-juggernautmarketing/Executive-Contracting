@@ -2,17 +2,22 @@
 
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { CheckCircle2, Loader2 } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
-import { PHONE_PRIMARY, PHONE_PRIMARY_HREF } from '@/lib/constants'
+import { useRouter } from 'next/navigation'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { BookingCalendar } from '@/components/BookingCalendar'
+import { PHONE_PRIMARY } from '@/lib/constants'
 import { PROPERTY_AGE_OPTIONS, SERVICE_OPTIONS, TIMELINE_OPTIONS } from '@/lib/formOptions'
+import { PENDING_STORAGE_PREFIX } from '@/lib/pendingStorage'
 import { initialLeadForm } from '@/types/lead'
 
-const STEPS = [
+const FORM_STEPS = [
   { id: 1, title: 'What service do you need?' },
   { id: 2, title: 'How old is your property?' },
   { id: 3, title: 'When do you need your inspection or repair?' },
   { id: 4, title: 'Your contact details' },
 ]
+
+const CALENDAR_STEP = 5
 
 const HTML_TAG = /<[^>]*>/g
 const inputClass =
@@ -47,23 +52,24 @@ function useStepAdvanceDelay() {
   return ms
 }
 
-function StepIndicator({ step }) {
+function StepIndicator({ step, total }) {
+  const steps = Array.from({ length: total }, (_, i) => i + 1)
   return (
-    <div className="mb-4 flex items-center justify-center sm:mb-5" aria-label={`Step ${step} of ${STEPS.length}`}>
-      {STEPS.map((s, i) => (
-        <div key={s.id} className="flex items-center">
+    <div className="mb-4 flex items-center justify-center sm:mb-5" aria-label={`Step ${step} of ${total}`}>
+      {steps.map((id, i) => (
+        <div key={id} className="flex items-center">
           <div
             className={`flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-bold transition-colors sm:h-8 sm:w-8 sm:text-xs ${
-              step >= s.id
+              step >= id
                 ? 'bg-executive-dark text-white ring-2 ring-executive-accent/30'
                 : 'border-2 border-executive-border bg-white text-executive-muted'
             }`}
           >
-            {step > s.id ? <CheckCircle2 className="h-3.5 w-3.5 text-executive-accent sm:h-4 sm:w-4" aria-hidden /> : s.id}
+            {step > id ? <CheckCircle2 className="h-3.5 w-3.5 text-executive-accent sm:h-4 sm:w-4" aria-hidden /> : id}
           </div>
-          {i < STEPS.length - 1 && (
+          {i < steps.length - 1 && (
             <div
-              className={`h-0.5 w-4 transition-colors sm:w-8 ${step > s.id ? 'bg-executive-accent' : 'bg-executive-border'}`}
+              className={`h-0.5 w-3 transition-colors sm:w-6 ${step > id ? 'bg-executive-accent' : 'bg-executive-border'}`}
               aria-hidden
             />
           )}
@@ -106,31 +112,52 @@ function IconOption({ opt, selected, onSelect, index, spanFull = false }) {
   )
 }
 
-function SuccessMarks() {
-  return (
-    <svg className="h-28 w-28 text-executive-accent" viewBox="0 0 64 64" aria-hidden>
-      <circle cx="32" cy="32" r="28" fill="rgba(196,169,98,0.15)" />
-      <path
-        className="animate-check-stroke"
-        stroke="currentColor"
-        strokeWidth="3.5"
-        fill="none"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        d="M18 34l8 8 20-22"
-      />
-    </svg>
-  )
-}
-
 export function LeadForm({ compactHeader = false }) {
+  const router = useRouter()
   const prefersReducedMotion = useReducedMotion()
   const [step, setStep] = useState(1)
   const [data, setData] = useState(initialLeadForm)
   const [status, setStatus] = useState('idle')
   const [errorMsg, setErrorMsg] = useState('')
   const [honeypot, setHoneypot] = useState('')
+  const [pendingId, setPendingId] = useState('')
+  const [expiresAt, setExpiresAt] = useState('')
+  const [leadSnapshot, setLeadSnapshot] = useState(null)
+  const flushedRef = useRef(false)
   const stepAdvanceDelayMs = useStepAdvanceDelay()
+
+  const goThankYou = useCallback(
+    (appointmentLabel) => {
+      flushedRef.current = true
+      const q = appointmentLabel ? `?appointment=${encodeURIComponent(appointmentLabel)}` : ''
+      router.push(`/thank-you${q}`)
+    },
+    [router],
+  )
+
+  useEffect(() => {
+    if (step !== CALENDAR_STEP || !pendingId || !expiresAt || flushedRef.current) return
+
+    const delay = Math.max(0, new Date(expiresAt).getTime() - Date.now())
+    const timer = setTimeout(async () => {
+      if (flushedRef.current) return
+      try {
+        const stored = sessionStorage.getItem(`${PENDING_STORAGE_PREFIX}${pendingId}`)
+        const lead = stored ? JSON.parse(stored) : leadSnapshot
+        await fetch('/api/lead/flush', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pendingId, lead }),
+          cache: 'no-store',
+        })
+      } catch {
+        /* cron will retry */
+      }
+      goThankYou('')
+    }, delay)
+
+    return () => clearTimeout(timer)
+  }, [step, pendingId, expiresAt, goThankYou, leadSnapshot])
 
   const selectService = useCallback(
     (service) => {
@@ -159,7 +186,7 @@ export function LeadForm({ compactHeader = false }) {
     [stepAdvanceDelayMs],
   )
 
-  const submit = async (e) => {
+  const submitContact = async (e) => {
     e.preventDefault()
     setErrorMsg('')
 
@@ -222,7 +249,7 @@ export function LeadForm({ compactHeader = false }) {
 
     setStatus('loading')
     try {
-      const res = await fetch('/api/lead', {
+      const res = await fetch('/api/lead/pending', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify(payload),
@@ -246,53 +273,38 @@ export function LeadForm({ compactHeader = false }) {
         return
       }
 
-      setData(initialLeadForm)
-      setStep(1)
-      setStatus('success')
+      setPendingId(body.pendingId)
+      setExpiresAt(body.expiresAt)
+      flushedRef.current = false
+      setStatus('idle')
+      setStep(CALENDAR_STEP)
     } catch {
       setStatus('idle')
       setErrorMsg(`Network error. Please try again or call ${PHONE_PRIMARY}.`)
     }
   }
 
-  const motionDur = prefersReducedMotion ? 0 : 0.35
-
-  if (status === 'success') {
-    return (
-      <div className="animate-form-success flex min-h-[260px] flex-col items-center justify-center px-2 py-4 text-center sm:min-h-[300px]">
-        <SuccessMarks />
-        <h3 className="mt-6 text-xl font-bold text-executive-dark">Request Received!</h3>
-        <p className="mt-2 max-w-sm text-executive-muted">
-          Our team will reach out shortly. For urgent needs, call{' '}
-          <a
-            href={PHONE_PRIMARY_HREF}
-            className="font-semibold text-executive-dark underline decoration-executive-accent underline-offset-2 hover:decoration-executive-dark"
-          >
-            {PHONE_PRIMARY}
-          </a>
-          .
-        </p>
-        <button
-          type="button"
-          onClick={() => setStatus('idle')}
-          className="mt-8 min-h-12 rounded-lg border-2 border-executive-border px-6 text-sm font-bold text-executive-dark transition-all hover:border-executive-accent hover:bg-executive-accent/10"
-        >
-          Submit another request
-        </button>
-      </div>
-    )
+  const handleBooked = (appointment) => {
+    const label = appointment?.displayLabel || ''
+    goThankYou(label)
   }
+
+  const motionDur = prefersReducedMotion ? 0 : 0.35
+  const stepTitle =
+    step === CALENDAR_STEP ? 'Pick your appointment date & time' : FORM_STEPS[step - 1]?.title
 
   return (
     <div className="relative w-full min-w-0">
       {!compactHeader && (
         <div className="mb-4 text-center sm:mb-5">
           <h3 className="text-base font-bold text-executive-dark sm:text-lg lg:text-xl">Get Your Free Precision Budget</h3>
-          <p className="mt-1 text-xs text-executive-muted sm:text-sm">Four quick steps to your quote.</p>
+          <p className="mt-1 text-xs text-executive-muted sm:text-sm">
+            {step === CALENDAR_STEP ? 'Choose a time — Eastern (EST/EDT).' : 'Four quick steps, then schedule your visit.'}
+          </p>
         </div>
       )}
 
-      <StepIndicator step={step} />
+      <StepIndicator step={step} total={CALENDAR_STEP} />
 
       <AnimatePresence mode="wait">
         <motion.div
@@ -302,7 +314,7 @@ export function LeadForm({ compactHeader = false }) {
           exit={{ opacity: 0, y: prefersReducedMotion ? 0 : -8 }}
           transition={{ duration: motionDur, ease: [0.22, 1, 0.36, 1] }}
         >
-          <p className="mb-3 text-sm font-semibold leading-snug text-executive-dark sm:mb-3.5">{STEPS[step - 1].title}</p>
+          <p className="mb-3 text-sm font-semibold leading-snug text-executive-dark sm:mb-3.5">{stepTitle}</p>
 
           {step === 1 && (
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3">
@@ -348,7 +360,7 @@ export function LeadForm({ compactHeader = false }) {
           )}
 
           {step === 4 && (
-            <form onSubmit={submit} className="space-y-3">
+            <form onSubmit={submitContact} className="space-y-3">
               <label className="sr-only" aria-hidden>
                 Website
                 <input
@@ -424,7 +436,7 @@ export function LeadForm({ compactHeader = false }) {
                   className="mt-0.5 h-4 w-4 shrink-0 rounded border-executive-border text-executive-accent focus:ring-executive-accent sm:mt-1 sm:h-5 sm:w-5"
                 />
                 <span className="text-[11px] leading-relaxed text-executive-muted sm:text-xs">
-                  By clicking submit, you authorize Executive Construction to text or call regarding this free quote
+                  By clicking continue, you authorize Executive Construction to text or call regarding this free quote
                   under CCPA &amp; TCPA privacy compliance standards.
                 </span>
               </label>
@@ -441,18 +453,34 @@ export function LeadForm({ compactHeader = false }) {
                 {status === 'loading' ? (
                   <>
                     <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-                    Sending...
+                    Saving...
                   </>
                 ) : (
-                  'Submit Free Quote Request'
+                  'Continue to Schedule'
                 )}
               </button>
             </form>
           )}
+
+          {step === CALENDAR_STEP && pendingId && (
+            <>
+              {errorMsg && (
+                <p className="mb-3 text-sm text-red-600" role="alert">
+                  {errorMsg}
+                </p>
+              )}
+              <BookingCalendar
+                pendingId={pendingId}
+                leadSnapshot={leadSnapshot}
+                onBooked={handleBooked}
+                onError={setErrorMsg}
+              />
+            </>
+          )}
         </motion.div>
       </AnimatePresence>
 
-      {errorMsg && step !== 4 && (
+      {errorMsg && step !== 4 && step !== CALENDAR_STEP && (
         <p className="mt-3 text-sm text-red-600" role="alert">
           {errorMsg}
         </p>
