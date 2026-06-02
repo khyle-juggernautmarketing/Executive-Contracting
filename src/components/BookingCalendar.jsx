@@ -40,7 +40,26 @@ export function BookingCalendar({ pendingId, leadSnapshot, onBooked, onError }) 
         if (cancelled) return
         const list = data.dates ?? []
         setDates(list)
-        if (list[0]) setSelectedDate(list[0])
+        if (list.length > 0) {
+          let picked = list[0]
+          for (const d of list) {
+            const slotRes = await fetch(`/api/appointments/availability?date=${encodeURIComponent(d)}`, {
+              cache: 'no-store',
+            })
+            const slotText = await slotRes.text()
+            let slotData = {}
+            try {
+              slotData = slotText ? JSON.parse(slotText) : {}
+            } catch {
+              continue
+            }
+            if (slotRes.ok && (slotData.slots?.length ?? 0) > 0) {
+              picked = d
+              break
+            }
+          }
+          setSelectedDate(picked)
+        }
       } catch (e) {
         if (!cancelled) onError(e instanceof Error ? e.message : 'Could not load calendar')
       } finally {
